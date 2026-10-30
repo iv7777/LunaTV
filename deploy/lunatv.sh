@@ -146,6 +146,11 @@ ask_secret() {
   printf -v "$__var" '%s' "$__reply"
 }
 
+# 输入密码时按 Ctrl+C 中断，终端可能停留在不回显的状态，这里恢复
+restore_tty() {
+  stty echo </dev/tty 2>/dev/null || true
+}
+
 confirm() {
   local reply=''
   [[ $ASSUME_YES -eq 1 ]] && return 0
@@ -175,10 +180,11 @@ valid_username() {
   [[ $1 =~ ^[A-Za-z0-9_.@-]{1,32}$ ]]
 }
 
-# 写进 .env 的密码：8~128 位，不含空白和 $ ' " \ ` #
+# 写进 .env 的密码（单引号包裹）：8~128 位，不含空白和 $ ' " \ `；* # 等其他符号都可以
+PASSWORD_RULE="站长密码需要 8~128 位，不能包含空格和 \$ ' \" \\ \`（* # 等其他符号可以用）"
 valid_password() {
   ((${#1} >= 8 && ${#1} <= 128)) || return 1
-  case $1 in *[[:space:]\'\"\\\$\`\#]*) return 1 ;; esac
+  case $1 in *[[:space:]\'\"\\\$\`]*) return 1 ;; esac
 }
 
 valid_image() {
@@ -358,7 +364,8 @@ EOF
 render_env() {
   echo '# LunaTV 环境变量：USERNAME / PASSWORD 是站长账号，其他可用变量见 README「环境变量」'
   echo "USERNAME=$ADMIN_USER"
-  echo "PASSWORD=$ADMIN_PASS"
+  # 单引号包裹，密码里的 # 不会被当成注释
+  echo "PASSWORD='$ADMIN_PASS'"
   if [[ -f $ENV_FILE ]]; then
     grep -vE '^(USERNAME|PASSWORD)=|^# LunaTV 环境变量' "$ENV_FILE" || true
   fi
@@ -493,26 +500,45 @@ container_exists() {
   command -v docker >/dev/null && docker inspect "$1" >/dev/null 2>&1
 }
 
-check_ports() {
+# 从 ss 的输出里取出进程名，例如 "x-ui,xray"
+listener_names() {
+  sed -n 's/.*users:(("\([^"]*\)".*/\1/p' <<<"$1" | sort -u | paste -sd, -
+}
+
+# 端口检查：可以使用时不输出并返回 0，被占用时输出原因并返回 1
+proxy_port_error() {
   local out
-  out=$(port_listeners "$PROXY_PORT")
-  if [[ -n $out ]]; then
-    if [[ -f $NGINX_CONF && $out == *'"nginx"'* ]]; then
-      ok "端口 $PROXY_PORT 正由之前的 LunaTV nginx 配置使用，将更新"
-    else
-      die "端口 $PROXY_PORT 已被占用："$'\n'"$out"$'\n'"请用 --port 换一个（走 Cloudflare 代理时可选：$CF_HTTPS_PORTS）"
-    fi
+  out=$(port_listeners "$1")
+  if [[ -z $out ]] || [[ -f $NGINX_CONF && $out == *'"nginx"'* ]]; then
+    return 0
+  fi
+  echo "端口 $1 已被占用（$(listener_names "$out")）"
+  return 1
+}
+
+app_port_error() {
+  local out
+  out=$(port_listeners "$1")
+  if [[ -z $out ]] || [[ $out == *'"docker-proxy"'* && $(container_project lunatv) == "$COMPOSE_PROJECT" ]]; then
+    return 0
+  fi
+  echo "本机端口 $1 已被占用（$(listener_names "$out")）"
+  return 1
+}
+
+check_ports() {
+  local err
+  err=$(proxy_port_error "$PROXY_PORT") ||
+    die "$err，请用 --port 换一个（走 Cloudflare 代理时可选：$CF_HTTPS_PORTS）"
+  if [[ -n $(port_listeners "$PROXY_PORT") ]]; then
+    ok "端口 $PROXY_PORT 正由之前的 LunaTV nginx 配置使用，将更新"
   else
     ok "端口 $PROXY_PORT 可用"
   fi
 
-  out=$(port_listeners "$APP_PORT")
-  if [[ -n $out ]]; then
-    if [[ $out == *'"docker-proxy"'* && $(container_project lunatv) == "$COMPOSE_PROJECT" ]]; then
-      ok "本机端口 $APP_PORT 正由现有的 LunaTV 容器使用，将更新"
-    else
-      die "本机端口 $APP_PORT 已被占用："$'\n'"$out"$'\n'"请用 --app-port 换一个"
-    fi
+  err=$(app_port_error "$APP_PORT") || die "$err，请用 --app-port 换一个"
+  if [[ -n $(port_listeners "$APP_PORT") ]]; then
+    ok "本机端口 $APP_PORT 正由现有的 LunaTV 容器使用，将更新"
   else
     ok "本机端口 $APP_PORT 可用"
   fi
@@ -545,30 +571,48 @@ cert_names() {
   openssl x509 -in "$1" -noout -ext subjectAltName 2>/dev/null | tail -n +2 | sed 's/^ *//'
 }
 
-check_cert() {
-  if [[ ! -f $CERT_FILE || ! -f $KEY_FILE ]]; then
-    local hint=''
-    if [[ -d /root/cert ]]; then
-      hint=$'\n'"/root/cert 下现有：$(find /root/cert -mindepth 1 -maxdepth 1 -printf '%f ')"
-    fi
-    [[ -f $CERT_FILE ]] || die "找不到证书文件 $CERT_FILE（用 --cert 指定）$hint"
-    die "找不到私钥文件 $KEY_FILE（用 --key 指定）$hint"
+# 证书检查：没问题时不输出并返回 0，有问题时输出原因并返回 1
+verify_cert() {
+  local hint='' cert_pub key_pub host_check
+  if [[ -d /root/cert ]]; then
+    hint="（/root/cert 下现有：$(find /root/cert -mindepth 1 -maxdepth 1 -printf '%f ' 2>/dev/null)）"
   fi
-  openssl x509 -in "$CERT_FILE" -noout 2>/dev/null || die "$CERT_FILE 不是有效的 PEM 证书"
-  openssl pkey -in "$KEY_FILE" -noout 2>/dev/null || die "$KEY_FILE 不是有效的 PEM 私钥"
-
-  local cert_pub key_pub
+  if [[ ! -f $CERT_FILE ]]; then
+    echo "找不到证书文件 $CERT_FILE$hint"
+    return 1
+  fi
+  if [[ ! -f $KEY_FILE ]]; then
+    echo "找不到私钥文件 $KEY_FILE$hint"
+    return 1
+  fi
+  if ! openssl x509 -in "$CERT_FILE" -noout 2>/dev/null; then
+    echo "$CERT_FILE 不是有效的 PEM 证书"
+    return 1
+  fi
+  if ! openssl pkey -in "$KEY_FILE" -noout 2>/dev/null; then
+    echo "$KEY_FILE 不是有效的 PEM 私钥"
+    return 1
+  fi
   cert_pub=$(openssl x509 -in "$CERT_FILE" -noout -pubkey | openssl pkey -pubin -outform DER | sha256sum)
   key_pub=$(openssl pkey -in "$KEY_FILE" -pubout -outform DER | sha256sum)
-  [[ $cert_pub == "$key_pub" ]] || die "证书 $CERT_FILE 和私钥 $KEY_FILE 不是一对"
-
-  local host_check
+  if [[ $cert_pub != "$key_pub" ]]; then
+    echo "证书 $CERT_FILE 和私钥 $KEY_FILE 不是一对"
+    return 1
+  fi
   host_check=$(openssl x509 -in "$CERT_FILE" -noout -checkhost "$DOMAIN" 2>/dev/null || true)
-  [[ $host_check == *"does match"* ]] ||
-    die "证书不包含域名 $DOMAIN（证书包含：$(cert_names "$CERT_FILE")）"
+  if [[ $host_check != *"does match"* ]]; then
+    echo "证书不包含域名 $DOMAIN（证书包含：$(cert_names "$CERT_FILE")）"
+    return 1
+  fi
+  if ! openssl x509 -in "$CERT_FILE" -noout -checkend 0 >/dev/null; then
+    echo "证书已于 $(cert_enddate "$CERT_FILE") 过期"
+    return 1
+  fi
+}
 
-  openssl x509 -in "$CERT_FILE" -noout -checkend 0 >/dev/null ||
-    die "证书已于 $(cert_enddate "$CERT_FILE") 过期"
+check_cert() {
+  local err
+  err=$(verify_cert) || die "$err"
   if ! openssl x509 -in "$CERT_FILE" -noout -checkend $((7 * 86400)) >/dev/null; then
     warn "证书 7 天内到期（$(cert_enddate "$CERT_FILE")），请确认续期正常"
   fi
@@ -882,34 +926,110 @@ install_self() {
 
 # ---------- 命令 ----------
 
+# 交互输入不合格时提示原因并重新输入（直到合格或按 Ctrl+C）；没有终端可以提问时直接退出
+retry_or_die() {
+  is_interactive || die "$1"
+  warn "$1，请重新输入（Ctrl+C 取消）"
+}
+
+# prompt_valid <变量名> <选项值> <提示> <默认值> <校验函数> <错误说明>
+# 命令行选项给的值不合格时直接退出；交互输入的值不合格时重新提问
+prompt_valid() {
+  local __var=$1 __opt=$2 __prompt=$3 __default=$4 __check=$5 __error=$6 __value=''
+  if [[ -n $__opt ]]; then
+    "$__check" "$__opt" || die "$__error：$__opt"
+    printf -v "$__var" '%s' "$__opt"
+    return 0
+  fi
+  while true; do
+    ask __value "$__prompt" "$__default"
+    if "$__check" "$__value"; then
+      printf -v "$__var" '%s' "$__value"
+      return 0
+    fi
+    retry_or_die "$__error：${__value:-（空）}"
+  done
+}
+
+# 输入站长密码（输入时不显示，需要输两次）；留空时沿用现有密码，没有现有密码则自动生成
+ask_admin_password() {
+  local current=$1 label confirm_pass=''
+  if [[ -n $current ]]; then
+    label='站长密码（留空则沿用现有密码）'
+  else
+    label='站长密码（留空则自动生成）'
+  fi
+  while true; do
+    ask_secret ADMIN_PASS "$label"
+    if [[ -z $ADMIN_PASS ]]; then
+      if [[ -n $current ]]; then
+        ADMIN_PASS=$current
+        log '沿用现有的站长密码'
+      else
+        ADMIN_PASS=$(generate_password)
+        PASSWORD_GENERATED=1
+      fi
+      return 0
+    fi
+    if ! valid_password "$ADMIN_PASS"; then
+      retry_or_die "$PASSWORD_RULE"
+      continue
+    fi
+    ask_secret confirm_pass '再输入一次确认'
+    if [[ $confirm_pass == "$ADMIN_PASS" ]]; then
+      return 0
+    fi
+    retry_or_die '两次输入的密码不一致'
+  done
+}
+
 resolve_install_settings() {
   load_state || true
+  local err default_cert default_key port_default last_domain='' last_cert='' last_key=''
 
-  if [[ -n $OPT_DOMAIN ]]; then
-    DOMAIN=$OPT_DOMAIN
-  else
-    ask DOMAIN '访问 LunaTV 用的域名（证书需要包含它）' "$ST_DOMAIN"
+  if [[ -z $OPT_DOMAIN && -z $ST_DOMAIN ]] && ! is_interactive; then
+    die '缺少域名：请用 --domain 指定'
   fi
-  [[ -n $DOMAIN ]] || die "缺少域名：请用 --domain 指定"
-  valid_domain "$DOMAIN" || die "域名格式不对：$DOMAIN"
 
-  if [[ -n $OPT_PROXY_PORT ]]; then
-    PROXY_PORT=$OPT_PROXY_PORT
-  else
-    ask PROXY_PORT 'HTTPS 端口（走 Cloudflare 代理时只能用 2053/2083/2087/2096/8443/443）' \
-      "${ST_PROXY_PORT:-$DEFAULT_PROXY_PORT}"
-  fi
-  valid_port "$PROXY_PORT" || die "端口不对：$PROXY_PORT"
+  # 域名与证书：证书要存在、和私钥是一对、包含该域名且没过期，否则重新输入
+  while true; do
+    prompt_valid DOMAIN "$OPT_DOMAIN" '访问 LunaTV 用的域名（证书需要包含它）' \
+      "${last_domain:-$ST_DOMAIN}" valid_domain '域名格式不对'
+    if [[ -n $last_cert && $DOMAIN == "$last_domain" ]]; then
+      default_cert=$last_cert default_key=$last_key
+    elif [[ $DOMAIN == "$ST_DOMAIN" && -n $ST_CERT_FILE ]]; then
+      default_cert=$ST_CERT_FILE default_key=$ST_KEY_FILE
+    else
+      default_cert="/root/cert/$DOMAIN/fullchain.pem" default_key="/root/cert/$DOMAIN/privkey.pem"
+    fi
+    prompt_valid CERT_FILE "$OPT_CERT" '证书文件（fullchain）' "$default_cert" valid_path \
+      '证书路径必须是绝对路径，且不能含空格和特殊字符'
+    prompt_valid KEY_FILE "$OPT_KEY" '私钥文件' "$default_key" valid_path \
+      '私钥路径必须是绝对路径，且不能含空格和特殊字符'
+    if err=$(verify_cert); then
+      break
+    fi
+    # 三项都来自命令行选项时，没有可以重新输入的
+    if [[ -n $OPT_DOMAIN && -n $OPT_CERT && -n $OPT_KEY ]]; then
+      die "$err"
+    fi
+    retry_or_die "$err"
+    last_domain=$DOMAIN last_cert=$CERT_FILE last_key=$KEY_FILE
+  done
 
-  local default_cert="/root/cert/$DOMAIN/fullchain.pem" default_key="/root/cert/$DOMAIN/privkey.pem"
-  if [[ $DOMAIN == "$ST_DOMAIN" && -n $ST_CERT_FILE ]]; then
-    default_cert=$ST_CERT_FILE
-    default_key=$ST_KEY_FILE
-  fi
-  if [[ -n $OPT_CERT ]]; then CERT_FILE=$OPT_CERT; else ask CERT_FILE '证书文件（fullchain）' "$default_cert"; fi
-  if [[ -n $OPT_KEY ]]; then KEY_FILE=$OPT_KEY; else ask KEY_FILE '私钥文件' "$default_key"; fi
-  valid_path "$CERT_FILE" || die "证书路径必须是绝对路径，且不能含空格或特殊字符：$CERT_FILE"
-  valid_path "$KEY_FILE" || die "私钥路径必须是绝对路径，且不能含空格或特殊字符：$KEY_FILE"
+  # 对外端口：格式正确，并且没有被其他程序占用
+  port_default=${ST_PROXY_PORT:-$DEFAULT_PROXY_PORT}
+  while true; do
+    prompt_valid PROXY_PORT "$OPT_PROXY_PORT" \
+      'HTTPS 端口（走 Cloudflare 代理时只能用 2053/2083/2087/2096/8443/443）' "$port_default" \
+      valid_port '端口必须是 1~65535 之间的数字'
+    if err=$(proxy_port_error "$PROXY_PORT"); then
+      break
+    fi
+    [[ -z $OPT_PROXY_PORT ]] || die "$err，请用 --port 换一个"
+    retry_or_die "$err"
+    port_default=''
+  done
 
   APP_PORT=${OPT_APP_PORT:-${ST_APP_PORT:-$DEFAULT_APP_PORT}}
   valid_port "$APP_PORT" || die "本机端口不对：$APP_PORT"
@@ -919,27 +1039,20 @@ resolve_install_settings() {
   local current_user current_pass
   current_user=$(read_env_value USERNAME)
   current_pass=$(read_env_value PASSWORD)
-  if [[ -n $OPT_USERNAME ]]; then
-    ADMIN_USER=$OPT_USERNAME
-  else
-    ask ADMIN_USER '站长账号' "${current_user:-admin}"
-  fi
-  valid_username "$ADMIN_USER" || die "站长账号只能包含字母、数字和 _ . @ -，最长 32 位：$ADMIN_USER"
+  prompt_valid ADMIN_USER "$OPT_USERNAME" '站长账号' "${current_user:-admin}" valid_username \
+    '站长账号只能包含字母、数字和 _ . @ -，最长 32 位'
 
   if [[ -n $OPT_PASSWORD ]]; then
+    valid_password "$OPT_PASSWORD" || die "$PASSWORD_RULE"
     ADMIN_PASS=$OPT_PASSWORD
-    valid_password "$ADMIN_PASS" || die "站长密码需要 8~128 位，且不能包含空白和 \$ ' \" \\ \` #"
-  elif [[ -n $current_pass ]]; then
-    ADMIN_PASS=$current_pass
-    log "沿用 $ENV_FILE 里现有的站长密码（要修改请加 --password）"
-  else
-    ask_secret ADMIN_PASS '站长密码（留空则自动生成）'
-    if [[ -z $ADMIN_PASS ]]; then
-      ADMIN_PASS=$(generate_password)
-      PASSWORD_GENERATED=1
-    fi
-    valid_password "$ADMIN_PASS" || die "站长密码需要 8~128 位，且不能包含空白和 \$ ' \" \\ \` #"
+    return 0
   fi
+  if [[ -n $current_pass ]] && ! valid_password "$current_pass"; then
+    is_interactive || die "现有站长密码不符合要求，请用 --password 设置新密码。$PASSWORD_RULE"
+    warn "现有站长密码不符合要求，需要设置新密码。$PASSWORD_RULE"
+    current_pass=''
+  fi
+  ask_admin_password "$current_pass"
 }
 
 print_install_plan() {
@@ -1311,9 +1424,9 @@ menu_pause() {
   IFS= read -r _ </dev/tty || true
 }
 
-# 在菜单提示处按 Ctrl+C 退出菜单；执行操作时按 Ctrl+C 只中断这一项（例如查看日志），回到菜单
-menu_trap_exit() { trap 'printf "\n" >/dev/tty; exit 0' INT; }
-menu_trap_stay() { trap 'printf "\n" >/dev/tty' INT; }
+# 在菜单提示处按 Ctrl+C 退出菜单；执行操作时按 Ctrl+C 只中断这一项（例如查看日志或正在输入），回到菜单
+menu_trap_exit() { trap 'restore_tty; printf "\n" >/dev/tty; exit 0' INT; }
+menu_trap_stay() { trap 'restore_tty; printf "\n" >/dev/tty' INT; }
 
 cmd_menu() {
   require_root
@@ -1446,7 +1559,7 @@ parse_options() {
 
 main() {
   trap 'on_error $? $LINENO "$BASH_COMMAND"' ERR
-  trap 'echo >&2; die "已中断"' INT
+  trap 'restore_tty; echo >&2; die "已中断"' INT
   COMMAND=${1:-}
   if (($# > 0)); then shift; fi
   parse_options "$@"
