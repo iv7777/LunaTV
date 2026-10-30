@@ -19,7 +19,8 @@
 set -Eeuo pipefail
 
 SCRIPT_VERSION='1.0.0'
-SCRIPT_URL='https://raw.githubusercontent.com/iv7777/LunaTV/HEAD/deploy/lunatv.sh'
+# self-update 的下载地址，可用 LUNATV_SCRIPT_URL 改成其他分支
+SCRIPT_URL="${LUNATV_SCRIPT_URL:-https://raw.githubusercontent.com/iv7777/LunaTV/HEAD/deploy/lunatv.sh}"
 DEFAULT_IMAGE='ghcr.io/iv7777/lunatv:latest'
 KVROCKS_IMAGE='apache/kvrocks'
 COMPOSE_PROJECT='lunatv'
@@ -857,6 +858,16 @@ install_cron() {
   fi
 }
 
+# install_executable <源文件> <目标>：先写临时文件再改名替换。
+# bash 是边读边执行脚本的，原地覆盖正在运行的脚本会让它读到错乱的内容。
+install_executable() {
+  local tmp
+  tmp=$(mktemp "$2.XXXXXX")
+  cat "$1" >"$tmp"
+  chmod 755 "$tmp"
+  mv -f "$tmp" "$2"
+}
+
 install_self() {
   local src=${BASH_SOURCE[0]}
   if [[ ! -f $src ]]; then
@@ -864,9 +875,9 @@ install_self() {
     return 0
   fi
   if [[ ! $src -ef $BIN_PATH ]]; then
-    install -m 755 "$src" "$BIN_PATH" || die "无法安装 lunatv 命令到 $BIN_PATH"
+    install_executable "$src" "$BIN_PATH" || die "无法安装 lunatv 命令到 $BIN_PATH"
   fi
-  ok "已安装 lunatv 命令（$BIN_PATH）"
+  ok "已安装 lunatv 命令（$BIN_PATH）；以后直接运行 lunatv 打开管理菜单"
 }
 
 # ---------- 命令 ----------
@@ -1219,19 +1230,144 @@ cmd_self_update() {
     rm -f "$tmp"
     die '下载的脚本有语法错误，已放弃更新'
   fi
-  install -m 755 "$tmp" "$BIN_PATH" || die "无法写入 $BIN_PATH"
+  install_executable "$tmp" "$BIN_PATH" || die "无法写入 $BIN_PATH"
   rm -f "$tmp"
   ok "lunatv 命令已更新到 $(bash "$BIN_PATH" version)"
+}
+
+# ---------- 交互菜单 ----------
+
+# 在子 shell 里执行一项菜单操作：出错（die）只结束这一项，回到菜单。
+# 不能写成 ( 命令 ) || true —— 那样 bash 会在整个子 shell 里关掉 set -e，出错后继续往下执行。
+MENU_RC=0
+menu_run() {
+  trap - ERR
+  set +e
+  (
+    set -e
+    trap 'on_error $? $LINENO "$BASH_COMMAND"' ERR
+    "$@"
+  )
+  MENU_RC=$?
+  set -e
+  trap 'on_error $? $LINENO "$BASH_COMMAND"' ERR
+}
+
+menu_status() {
+  local running version
+  if [[ ! -f $COMPOSE_FILE ]] || ! load_state; then
+    echo '未安装（选 1 开始安装）'
+    return 0
+  fi
+  APP_PORT=${ST_APP_PORT:-$DEFAULT_APP_PORT}
+  running=$(docker inspect -f '{{.State.Running}}' lunatv 2>/dev/null || true)
+  if [[ -z $running ]]; then
+    echo "已卸载，数据保留（选 1 重新安装）"
+  elif [[ $running != true ]]; then
+    echo "已停止 · https://$ST_DOMAIN:$ST_PROXY_PORT（选 7 启动）"
+  elif version=$(app_version); then
+    echo "运行中 v$version · https://$ST_DOMAIN:$ST_PROXY_PORT"
+  else
+    echo "容器在运行，但应用没有响应（选 2 检查、6 看日志）"
+  fi
+}
+
+menu_show() {
+  cat <<EOF
+
+${C_BOLD}======== LunaTV 管理菜单 v$SCRIPT_VERSION ========${C_RESET}
+ 状态：$(menu_status)
+----------------------------------------
+  1. 安装 / 重新配置
+  2. 查看运行状态
+  3. 查看部署信息
+  4. 显示站长密码
+  5. 更新 LunaTV
+  6. 查看日志（Ctrl+C 返回菜单）
+  7. 启动
+  8. 停止
+  9. 重启
+ 10. 更新 lunatv 命令
+ 11. 卸载（保留数据）
+ 12. 彻底卸载（删除全部数据）
+  0. 退出
+----------------------------------------
+EOF
+}
+
+menu_show_password() {
+  require_installed
+  printf '  站长账号   %s\n' "$(read_env_value USERNAME)"
+  printf '  站长密码   %s\n' "$(read_env_value PASSWORD)"
+}
+
+menu_purge() {
+  PURGE=1
+  cmd_uninstall
+}
+
+menu_pause() {
+  printf '\n按回车返回菜单…' >/dev/tty
+  IFS= read -r _ </dev/tty || true
+}
+
+# 在菜单提示处按 Ctrl+C 退出菜单；执行操作时按 Ctrl+C 只中断这一项（例如查看日志），回到菜单
+menu_trap_exit() { trap 'printf "\n" >/dev/tty; exit 0' INT; }
+menu_trap_stay() { trap 'printf "\n" >/dev/tty' INT; }
+
+cmd_menu() {
+  require_root
+  is_interactive || die '菜单需要在终端里运行；也可以直接用 lunatv <命令>，见 lunatv help'
+  local choice
+  while true; do
+    menu_trap_exit
+    menu_show
+    printf '请输入选项 [0-12]：' >/dev/tty
+    # Ctrl+D 同样退出
+    IFS= read -r choice </dev/tty || {
+      echo
+      return 0
+    }
+    menu_trap_stay
+    case ${choice//[[:space:]]/} in
+      1) menu_run cmd_install ;;
+      2) menu_run cmd_status ;;
+      3) menu_run cmd_info ;;
+      4) menu_run menu_show_password ;;
+      5) menu_run cmd_update ;;
+      6) menu_run cmd_logs ;;
+      7) menu_run cmd_start ;;
+      8) menu_run cmd_stop ;;
+      9) menu_run cmd_restart ;;
+      10)
+        menu_run cmd_self_update
+        # 新版本已写入磁盘，正在运行的还是旧代码，退出让用户重新打开
+        if ((MENU_RC == 0)); then
+          ok '请重新运行 lunatv 使用新版本'
+          return 0
+        fi
+        ;;
+      11) menu_run cmd_uninstall ;;
+      12) menu_run menu_purge ;;
+      0 | q | Q) return 0 ;;
+      '') continue ;;
+      *) warn "没有这个选项：$choice" ;;
+    esac
+    menu_trap_exit
+    menu_pause
+  done
 }
 
 usage() {
   cat <<EOF
 LunaTV 部署与维护脚本 v$SCRIPT_VERSION
 
-用法：lunatv <命令> [选项]
-      （首次安装：sudo bash lunatv.sh install）
+用法：lunatv                  打开管理菜单
+      lunatv <命令> [选项]    直接执行某个命令
+      （首次安装：sudo bash lunatv.sh install，或 sudo bash lunatv.sh 打开菜单）
 
 命令：
+  menu          管理菜单（不带命令运行时默认打开）
   install       安装或重新配置（可重复运行，会沿用上次的设置和站长密码）
   update        拉取最新镜像并重启
   status        检查容器、应用、nginx、HTTPS、证书、定时任务和防火墙
@@ -1311,11 +1447,16 @@ parse_options() {
 main() {
   trap 'on_error $? $LINENO "$BASH_COMMAND"' ERR
   trap 'echo >&2; die "已中断"' INT
-  COMMAND=${1:-help}
+  COMMAND=${1:-}
   if (($# > 0)); then shift; fi
   parse_options "$@"
+  # 不带命令时：在终端里打开菜单，否则（例如被其他脚本调用）显示帮助
+  if [[ -z $COMMAND ]]; then
+    if is_interactive; then COMMAND=menu; else COMMAND=help; fi
+  fi
 
   case $COMMAND in
+    menu) cmd_menu ;;
     install) cmd_install ;;
     update) cmd_update ;;
     status) cmd_status ;;
@@ -1335,4 +1476,6 @@ main() {
 COMMAND=''
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
   main "$@"
+  # 立即退出：self-update 替换脚本文件后，bash 不会再从文件里读后面的内容
+  exit
 fi

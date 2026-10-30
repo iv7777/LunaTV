@@ -83,7 +83,7 @@ curl -fsSL https://raw.githubusercontent.com/iv7777/LunaTV/HEAD/deploy/lunatv.sh
 sudo bash lunatv.sh install
 ```
 
-安装过程中会询问域名、端口、证书路径和站长账号（也可以用 `--domain`、`--port` 等选项直接指定），并检查证书是否有效且与域名匹配、端口是否被占用；宿主机防火墙（ufw，或 Oracle Cloud 镜像自带的 iptables 规则）拦截时会自动放行该端口，最后自检 HTTPS。安装后可直接用 `lunatv` 命令维护：
+安装过程中会询问域名、端口、证书路径和站长账号（也可以用 `--domain`、`--port` 等选项直接指定），并检查证书是否有效且与域名匹配、端口是否被占用；宿主机防火墙（ufw，或 Oracle Cloud 镜像自带的 iptables 规则）拦截时会自动放行该端口，最后自检 HTTPS。安装后直接运行 `lunatv` 打开管理菜单（安装、状态、信息、更新、日志、启停、卸载都在菜单里），也可以直接执行命令：
 
 | 命令 | 作用 |
 | ---- | ---- |
