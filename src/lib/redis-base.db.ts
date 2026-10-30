@@ -258,6 +258,17 @@ export abstract class BaseRedisStorage implements IStorage {
     await this.withRetry(() => this.client.sAdd(this.usersSetKey(), userName));
   }
 
+  // 数据导入：备份中的密码已是加盐哈希，原样写入避免二次哈希；旧备份中的明文则先哈希
+  async restoreUser(userName: string, storedPassword: string): Promise<void> {
+    const value = isHashed(storedPassword)
+      ? storedPassword
+      : hashPassword(storedPassword);
+    await this.withRetry(() =>
+      this.client.set(this.userPwdKey(userName), value)
+    );
+    await this.withRetry(() => this.client.sAdd(this.usersSetKey(), userName));
+  }
+
   async verifyUser(userName: string, password: string): Promise<boolean> {
     const stored = await this.withRetry(() =>
       this.client.get(this.userPwdKey(userName))
