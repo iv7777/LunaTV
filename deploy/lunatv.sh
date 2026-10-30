@@ -362,7 +362,7 @@ EOF
 
 # USERNAME / PASSWORD 写在最前面，保留用户在 .env 里加的其他变量
 render_env() {
-  echo '# LunaTV 环境变量：USERNAME / PASSWORD 是站长账号，其他可用变量见 README「环境变量」'
+  echo '# LunaTV 环境变量：USERNAME / PASSWORD 是站长的登录用户名和密码，其他可用变量见 README「环境变量」'
   echo "USERNAME=$ADMIN_USER"
   # 单引号包裹，密码里的 # 不会被当成注释
   echo "PASSWORD='$ADMIN_PASS'"
@@ -955,9 +955,9 @@ prompt_valid() {
 ask_admin_password() {
   local current=$1 label confirm_pass=''
   if [[ -n $current ]]; then
-    label='站长密码（留空则沿用现有密码）'
+    label='站长密码（输入时不显示；留空则沿用现有密码）'
   else
-    label='站长密码（留空则自动生成）'
+    label='站长密码（输入时不显示；留空则自动生成）'
   fi
   while true; do
     ask_secret ADMIN_PASS "$label"
@@ -1039,8 +1039,9 @@ resolve_install_settings() {
   local current_user current_pass
   current_user=$(read_env_value USERNAME)
   current_pass=$(read_env_value PASSWORD)
-  prompt_valid ADMIN_USER "$OPT_USERNAME" '站长账号' "${current_user:-admin}" valid_username \
-    '站长账号只能包含字母、数字和 _ . @ -，最长 32 位'
+  log '接下来设置站长登录 LunaTV 用的用户名和密码'
+  prompt_valid ADMIN_USER "$OPT_USERNAME" '站长用户名' "${current_user:-admin}" valid_username \
+    '这里填的是用户名（密码在下一步设置），只能包含字母、数字和 _ . @ -，最长 32 位'
 
   if [[ -n $OPT_PASSWORD ]]; then
     valid_password "$OPT_PASSWORD" || die "$PASSWORD_RULE"
@@ -1060,7 +1061,7 @@ print_install_plan() {
   printf '  访问地址   https://%s:%s\n' "$DOMAIN" "$PROXY_PORT"
   printf '  证书       %s\n' "$CERT_FILE"
   printf '  私钥       %s\n' "$KEY_FILE"
-  printf '  站长账号   %s\n' "$ADMIN_USER"
+  printf '  站长用户名 %s\n' "$ADMIN_USER"
   printf '  镜像       %s\n' "$IMAGE"
   printf '  安装目录   %s（本机端口 127.0.0.1:%s）\n' "$LUNATV_DIR" "$APP_PORT"
   printf '  nginx 配置 %s\n' "$NGINX_CONF"
@@ -1111,7 +1112,7 @@ cmd_install() {
 
   section '安装完成'
   printf '  访问地址   %shttps://%s:%s%s\n' "$C_BOLD" "$DOMAIN" "$PROXY_PORT" "$C_RESET"
-  printf '  站长账号   %s\n' "$ADMIN_USER"
+  printf '  站长用户名 %s\n' "$ADMIN_USER"
   if ((PASSWORD_GENERATED)); then
     printf '  站长密码   %s%s%s（自动生成，请保存好；之后可用 lunatv info --show-password 查看）\n' \
       "$C_BOLD" "$ADMIN_PASS" "$C_RESET"
@@ -1206,7 +1207,7 @@ cmd_info() {
 
   section 'LunaTV 部署信息'
   printf '  访问地址     %s\n' "https://$DOMAIN:$PROXY_PORT"
-  printf '  站长账号     %s\n' "${user:-未设置}"
+  printf '  站长用户名   %s\n' "${user:-未设置}"
   if ((SHOW_PASSWORD)); then
     printf '  站长密码     %s\n' "${pass:-未设置}"
   else
@@ -1403,14 +1404,14 @@ ${C_BOLD}======== LunaTV 管理菜单 v$SCRIPT_VERSION ========${C_RESET}
  10. 更新 lunatv 命令
  11. 卸载（保留数据）
  12. 彻底卸载（删除全部数据）
-  0. 退出
+  0. 退出（直接回车也可以）
 ----------------------------------------
 EOF
 }
 
 menu_show_password() {
   require_installed
-  printf '  站长账号   %s\n' "$(read_env_value USERNAME)"
+  printf '  站长用户名 %s\n' "$(read_env_value USERNAME)"
   printf '  站长密码   %s\n' "$(read_env_value PASSWORD)"
 }
 
@@ -1435,7 +1436,7 @@ cmd_menu() {
   while true; do
     menu_trap_exit
     menu_show
-    printf '请输入选项 [0-12]：' >/dev/tty
+    printf '请输入选项 [0-12，回车退出]：' >/dev/tty
     # Ctrl+D 同样退出
     IFS= read -r choice </dev/tty || {
       echo
@@ -1462,8 +1463,7 @@ cmd_menu() {
         ;;
       11) menu_run cmd_uninstall ;;
       12) menu_run menu_purge ;;
-      0 | q | Q) return 0 ;;
-      '') continue ;;
+      0 | q | Q | '') return 0 ;;
       *) warn "没有这个选项：$choice" ;;
     esac
     menu_trap_exit
@@ -1497,7 +1497,7 @@ install 选项（不提供时会提问，加 -y 则使用默认值）：
   --port <端口>        对外 HTTPS 端口，默认 $DEFAULT_PROXY_PORT
   --cert <文件>        证书（fullchain），默认 /root/cert/<域名>/fullchain.pem
   --key <文件>         私钥，默认 /root/cert/<域名>/privkey.pem
-  --username <账号>    站长账号，默认 admin
+  --username <用户名>  站长用户名，默认 admin
   --password <密码>    站长密码，默认沿用现有密码或自动生成
   --app-port <端口>    LunaTV 在本机监听的端口，默认 $DEFAULT_APP_PORT
   --image <镜像>       默认 $DEFAULT_IMAGE
