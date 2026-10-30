@@ -1,10 +1,12 @@
-name: CI
+# main 用于跟踪上游，本仓库的开发与发布都在 my-branch 上
+# 文件名与上游的 ci.yml 不同，便于在 Actions 中单独禁用上游的工作流
+name: LunaTV CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [my-branch]
   pull_request:
-    branches: [main, master]
+    branches: [my-branch]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -19,10 +21,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 版本取自 package.json 的 packageManager 字段，这里不能再指定 version
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - name: Setup Node
         uses: actions/setup-node@v4
