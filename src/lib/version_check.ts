@@ -2,7 +2,7 @@
 
 'use client';
 
-import { CURRENT_VERSION } from "@/lib/version";
+import { CURRENT_VERSION, REPO_RAW_URL } from '@/lib/version';
 
 // 版本检查结果枚举
 export enum UpdateStatus {
@@ -12,9 +12,7 @@ export enum UpdateStatus {
 }
 
 // 远程版本检查URL配置
-const VERSION_CHECK_URLS = [
-  'https://raw.githubusercontent.com/MoonTechLab/LunaTV/main/VERSION.txt',
-];
+const VERSION_CHECK_URLS = [`${REPO_RAW_URL}/VERSION.txt`];
 
 /**
  * 检查是否有新版本可用
@@ -22,19 +20,15 @@ const VERSION_CHECK_URLS = [
  */
 export async function checkForUpdates(): Promise<UpdateStatus> {
   try {
-    // 尝试从主要URL获取版本信息
-    const primaryVersion = await fetchVersionFromUrl(VERSION_CHECK_URLS[0]);
-    if (primaryVersion) {
-      return compareVersions(primaryVersion);
+    // 依次尝试各个URL，取第一个成功的结果
+    for (const url of VERSION_CHECK_URLS) {
+      const version = await fetchVersionFromUrl(url);
+      if (version) {
+        return compareVersions(version);
+      }
     }
 
-    // 如果主要URL失败，尝试备用URL
-    const backupVersion = await fetchVersionFromUrl(VERSION_CHECK_URLS[1]);
-    if (backupVersion) {
-      return compareVersions(backupVersion);
-    }
-
-    // 如果两个URL都失败，返回获取失败状态
+    // 所有URL都失败，返回获取失败状态
     return UpdateStatus.FETCH_FAILED;
   } catch (error) {
     console.error('版本检查失败:', error);

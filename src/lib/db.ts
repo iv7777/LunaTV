@@ -167,6 +167,10 @@ export class DbManager {
     await this.storage.registerUser(userName, password);
   }
 
+  async restoreUser(userName: string, storedPassword: string): Promise<void> {
+    await this.storage.restoreUser(userName, storedPassword);
+  }
+
   async verifyUser(userName: string, password: string): Promise<boolean> {
     return this.storage.verifyUser(userName, password);
   }

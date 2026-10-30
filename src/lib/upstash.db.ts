@@ -166,6 +166,15 @@ export class UpstashRedisStorage implements IStorage {
     await withRetry(() => this.client.sadd(this.usersSetKey(), userName));
   }
 
+  // 数据导入：备份中的密码已是加盐哈希，原样写入避免二次哈希；旧备份中的明文则先哈希
+  async restoreUser(userName: string, storedPassword: string): Promise<void> {
+    const value = isHashed(storedPassword)
+      ? storedPassword
+      : hashPassword(storedPassword);
+    await withRetry(() => this.client.set(this.userPwdKey(userName), value));
+    await withRetry(() => this.client.sadd(this.usersSetKey(), userName));
+  }
+
   async verifyUser(userName: string, password: string): Promise<boolean> {
     const stored = await withRetry(() =>
       this.client.get(this.userPwdKey(userName))

@@ -6,6 +6,8 @@
 
 > 🎬 **MoonTV** 是一个开箱即用的、跨平台的影视聚合播放器。它基于 **Next.js 14** + **Tailwind&nbsp;CSS** + **TypeScript** 构建，支持多资源搜索、在线播放、收藏同步、播放记录、云端存储，让你可以随时随地畅享海量免费影视内容。
 
+> 本仓库 fork 自 [MoonTechLab/LunaTV](https://github.com/MoonTechLab/LunaTV)，在其基础上独立维护。
+
 <div align="center">
 
 ![Next.js](https://img.shields.io/badge/Next.js-14-000?logo=nextdotjs)
@@ -90,7 +92,7 @@
 ```yml
 services:
   moontv-core:
-    image: ghcr.io/moontechlab/lunatv:latest
+    image: ghcr.io/iv7777/lunatv:latest
     container_name: moontv-core
     restart: on-failure
     ports:
@@ -124,7 +126,7 @@ volumes:
 ```yml
 services:
   moontv-core:
-    image: ghcr.io/moontechlab/lunatv:latest
+    image: ghcr.io/iv7777/lunatv:latest
     container_name: moontv-core
     restart: on-failure
     ports:
@@ -160,7 +162,7 @@ networks:
 ```yml
 services:
   moontv-core:
-    image: ghcr.io/moontechlab/lunatv:latest
+    image: ghcr.io/iv7777/lunatv:latest
     container_name: moontv-core
     restart: on-failure
     ports:
@@ -197,7 +199,7 @@ Zeabur 是一站式云端部署平台，使用预构建的 Docker 镜像可以�
 
 2. **添加 LunaTV 服务**
    - 点击 "Add Service" > "Docker Images"
-   - 输入镜像名称：`ghcr.io/moontechlab/lunatv:latest`
+   - 输入镜像名称：`ghcr.io/iv7777/lunatv:latest`
    - 配置端口：`3000` (HTTP)
 
 3. **配置环境变量**
@@ -397,6 +399,7 @@ v100.0.0 以上版本可配合 [Selene](https://github.com/MoonTechLab/Selene) �
 
 ## 致谢
 
+- [MoonTechLab/LunaTV](https://github.com/MoonTechLab/LunaTV) — 本仓库的上游项目。
 - [ts-nextjs-tailwind-starter](https://github.com/theodorusclarence/ts-nextjs-tailwind-starter) — 项目最初基于该脚手架。
 - [LibreTV](https://github.com/LibreSpark/LibreTV) — 由此启发，站在巨人的肩膀上。
 - [ArtPlayer](https://github.com/zhw2590582/ArtPlayer) — 提供强大的网页视频播放器。
@@ -407,4 +410,4 @@ v100.0.0 以上版本可配合 [Selene](https://github.com/MoonTechLab/Selene) �
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=MoonTechLab/LunaTV&type=Date)](https://www.star-history.com/#MoonTechLab/LunaTV&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=iv7777/LunaTV&type=Date)](https://www.star-history.com/#iv7777/LunaTV&Date)

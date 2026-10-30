@@ -90,9 +90,10 @@ export async function POST(req: NextRequest) {
     for (const username in userData) {
       const user = userData[username];
 
-      // 重新注册用户（包含密码）
+      // 恢复用户密码（备份中已是哈希，不能走 registerUser 否则会二次哈希）
+      // 旧版 Upstash 备份中纯数字明文密码可能被反序列化为数字，统一转为字符串
       if (user.password) {
-        await db.registerUser(username, user.password);
+        await db.restoreUser(username, String(user.password));
       }
 
       // 导入播放记录
