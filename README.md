@@ -45,6 +45,7 @@
 
 - [技术栈](#技术栈)
 - [部署](#部署)
+  - [VPS 一键脚本](#vps-一键脚本)
   - [一键部署](#zeabur-一键部署)
   - [Docker 部署](#Kvrocks-存储推荐)
 - [配置文件](#配置文件)
@@ -72,6 +73,29 @@
 ## 部署
 
 本项目**仅支持 Docker 或其他基于 Docker 的平台** 部署。
+
+### VPS 一键脚本
+
+适用于 Ubuntu / Debian（amd64、arm64）的 VPS：脚本会安装 Docker，用 Docker Compose 运行 LunaTV + Kvrocks，并由宿主机 nginx 提供 HTTPS（默认 2096 端口，可走 Cloudflare 代理）。证书使用服务器上已有的文件，默认 `/root/cert/<域名>/fullchain.pem` 与 `privkey.pem`（例如 3x-ui / acme.sh 签发的证书），不会改动已有的 nginx 配置、证书和 acme.sh 设置。
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/iv7777/LunaTV/HEAD/deploy/lunatv.sh -o lunatv.sh
+sudo bash lunatv.sh install
+```
+
+安装过程中会询问域名、端口、证书路径和站长账号（也可以用 `--domain`、`--port` 等选项直接指定），并检查证书是否有效且与域名匹配、端口是否被占用；宿主机防火墙（ufw，或 Oracle Cloud 镜像自带的 iptables 规则）拦截时会自动放行该端口，最后自检 HTTPS。安装后可直接用 `lunatv` 命令维护：
+
+| 命令 | 作用 |
+| ---- | ---- |
+| `lunatv status` | 检查容器、应用、nginx、HTTPS、证书和定时任务 |
+| `lunatv info` | 显示访问地址、站长账号和文件位置（`--show-password` 显示密码） |
+| `lunatv update` | 拉取最新镜像并重启 |
+| `lunatv logs` | 跟踪日志 |
+| `lunatv start` / `stop` / `restart` | 启动 / 停止 / 重启 |
+| `lunatv uninstall` | 卸载，默认保留数据；`--purge` 同时删除数据 |
+| `lunatv self-update` | 更新 `lunatv` 命令本身 |
+
+记得在云服务商防火墙放行对外端口（默认 TCP 2096）。
 
 ### zeabur 一键部署
 
