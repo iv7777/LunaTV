@@ -11,6 +11,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "200.1.0",
+    date: "2026-10-31",
+    added: [
+    "新增单元测试：豆瓣接口缓存、Bangumi 封面地址、首页延迟渲染"
+    ],
+    changed: [
+    "首页每一行数据各自加载、先到先显示，不再等最慢的数据源；首屏以下的行滚动到附近才渲染",
+    "hls.js 只在播放页、直播页和测速时加载，首页、搜索、豆瓣页面的首屏 JS 减少约 150 KB",
+    "豆瓣接口增加服务端缓存（2 小时，并发请求合并），重复访问不再请求豆瓣",
+    "新番封面改用 400 宽缩略图（原图最大近 2 MB）",
+    "生产构建去掉 console.log（保留 error / warn / info，构建时设置 KEEP_CONSOLE_LOG=1 可保留全部日志）"
+    ],
+    fixed: [
+    "每日放送初次加载时先用空星期请求一次并报“没有找到对应的日期”",
+    "直播分片代理在上游压缩响应时转发了错误的 Content-Length"
+    ]
+  },
+  {
     version: "200.0.0",
     date: "2026-10-31",
     added: [
