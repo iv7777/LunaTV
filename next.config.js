@@ -10,6 +10,16 @@ const nextConfig = {
   reactStrictMode: false,
   swcMinify: false,
 
+  // 生产构建去掉 console.log/debug，保留 error/warn/info 以便排查问题；
+  // 构建时设置 KEEP_CONSOLE_LOG=1 可保留全部日志
+  compiler: {
+    removeConsole:
+      process.env.NODE_ENV === 'production' &&
+      process.env.KEEP_CONSOLE_LOG !== '1'
+        ? { exclude: ['error', 'warn', 'info'] }
+        : false,
+  },
+
   experimental: {
     instrumentationHook: process.env.NODE_ENV === 'production',
   },

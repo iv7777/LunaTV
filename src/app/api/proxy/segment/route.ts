@@ -42,8 +42,11 @@ export async function GET(request: Request) {
     headers.set('Access-Control-Allow-Headers', 'Content-Type, Range, Origin, Accept');
     headers.set('Accept-Ranges', 'bytes');
     headers.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range');
+    // 上游压缩过的响应会被 fetch 自动解压，原 Content-Length 不再准确，此时不转发，
+    // 否则浏览器会报 ERR_CONTENT_LENGTH_MISMATCH
     const contentLength = response.headers.get('content-length');
-    if (contentLength) {
+    const contentEncoding = response.headers.get('content-encoding');
+    if (contentLength && (!contentEncoding || contentEncoding === 'identity')) {
       headers.set('Content-Length', contentLength);
     }
 

@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { GetBangumiCalendarData } from '@/lib/bangumi.client';
+import { GetBangumiCalendarData, getBangumiCoverUrl } from '@/lib/bangumi.client';
 import {
   getDoubanCategories,
   getDoubanList,
@@ -249,6 +249,12 @@ function DoubanPageClient() {
 
   // 防抖的数据加载函数
   const loadInitialData = useCallback(async () => {
+    // 每日放送要等星期选择器给出今天是星期几（初始为空）再加载，
+    // 否则会先用空星期请求一次并报“没有找到对应的日期”，然后再请求一次
+    if (type === 'anime' && primarySelection === '每日放送' && !selectedWeekday) {
+      return;
+    }
+
     // 创建当前参数的快照
     const requestSnapshot = {
       type,
@@ -298,12 +304,7 @@ function DoubanPageClient() {
             list: weekdayData.items.map((item) => ({
               id: item.id?.toString() || '',
               title: item.name_cn || item.name,
-              poster:
-                item.images.large ||
-                item.images.common ||
-                item.images.medium ||
-                item.images.small ||
-                item.images.grid,
+              poster: getBangumiCoverUrl(item.images),
               rate: item.rating?.score?.toFixed(1) || '',
               year: item.air_date?.split('-')?.[0] || '',
             })),

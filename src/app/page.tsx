@@ -9,6 +9,7 @@ import { Suspense, useEffect, useState } from 'react';
 import {
   BangumiCalendarData,
   GetBangumiCalendarData,
+  getBangumiCoverUrl,
 } from '@/lib/bangumi.client';
 // 客户端收藏 API
 import {
@@ -22,6 +23,7 @@ import { DoubanItem } from '@/lib/types';
 
 import CapsuleSwitch from '@/components/CapsuleSwitch';
 import ContinueWatching from '@/components/ContinueWatching';
+import LazySection from '@/components/LazySection';
 import PageLayout from '@/components/PageLayout';
 import ScrollableRow from '@/components/ScrollableRow';
 import { useSite } from '@/components/SiteProvider';
@@ -35,7 +37,11 @@ function HomeClient() {
   const [bangumiCalendarData, setBangumiCalendarData] = useState<
     BangumiCalendarData[]
   >([]);
-  const [loading, setLoading] = useState(true);
+  // 每一行各自的加载状态：哪行数据先到就先显示哪行，不必等最慢的数据源
+  const [loadingMovies, setLoadingMovies] = useState(true);
+  const [loadingTvShows, setLoadingTvShows] = useState(true);
+  const [loadingVarietyShows, setLoadingVarietyShows] = useState(true);
+  const [loadingBangumi, setLoadingBangumi] = useState(true);
   const { announcement } = useSite();
 
   const [showAnnouncement, setShowAnnouncement] = useState(false);
@@ -68,58 +74,33 @@ function HomeClient() {
   const [favoriteItems, setFavoriteItems] = useState<FavoriteItem[]>([]);
 
   useEffect(() => {
-    const fetchRecommendData = async () => {
-      try {
-        setLoading(true);
+    // 四个数据源各自请求、各自显示（以前要等全部返回才一起显示，
+    // 豆瓣偶尔要等到 10 秒超时，整个首页都会一直是骨架屏）
+    getDoubanCategories({ kind: 'movie', category: '热门', type: '全部' })
+      .then((res) => {
+        if (res.code === 200) setHotMovies(res.list);
+      })
+      .catch((error) => console.error('获取热门电影失败:', error))
+      .finally(() => setLoadingMovies(false));
 
-        // 并行获取热门电影、热门剧集、热门综艺和番剧日历
-        // 使用 allSettled 避免单个请求失败导致全部数据为空
-        const [moviesRes, tvShowsRes, varietyShowsRes, bangumiRes] =
-          await Promise.allSettled([
-            getDoubanCategories({
-              kind: 'movie',
-              category: '热门',
-              type: '全部',
-            }),
-            getDoubanCategories({ kind: 'tv', category: 'tv', type: 'tv' }),
-            getDoubanCategories({ kind: 'tv', category: 'show', type: 'show' }),
-            GetBangumiCalendarData(),
-          ]);
+    getDoubanCategories({ kind: 'tv', category: 'tv', type: 'tv' })
+      .then((res) => {
+        if (res.code === 200) setHotTvShows(res.list);
+      })
+      .catch((error) => console.error('获取热门剧集失败:', error))
+      .finally(() => setLoadingTvShows(false));
 
-        if (moviesRes.status === 'fulfilled' && moviesRes.value.code === 200) {
-          setHotMovies(moviesRes.value.list);
-        } else if (moviesRes.status === 'rejected') {
-          console.error('获取热门电影失败:', moviesRes.reason);
-        }
+    getDoubanCategories({ kind: 'tv', category: 'show', type: 'show' })
+      .then((res) => {
+        if (res.code === 200) setHotVarietyShows(res.list);
+      })
+      .catch((error) => console.error('获取热门综艺失败:', error))
+      .finally(() => setLoadingVarietyShows(false));
 
-        if (tvShowsRes.status === 'fulfilled' && tvShowsRes.value.code === 200) {
-          setHotTvShows(tvShowsRes.value.list);
-        } else if (tvShowsRes.status === 'rejected') {
-          console.error('获取热门剧集失败:', tvShowsRes.reason);
-        }
-
-        if (
-          varietyShowsRes.status === 'fulfilled' &&
-          varietyShowsRes.value.code === 200
-        ) {
-          setHotVarietyShows(varietyShowsRes.value.list);
-        } else if (varietyShowsRes.status === 'rejected') {
-          console.error('获取热门综艺失败:', varietyShowsRes.reason);
-        }
-
-        if (bangumiRes.status === 'fulfilled') {
-          setBangumiCalendarData(bangumiRes.value);
-        } else {
-          console.error('获取番剧日历失败:', bangumiRes.reason);
-        }
-      } catch (error) {
-        console.error('获取推荐数据失败:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchRecommendData();
+    GetBangumiCalendarData()
+      .then((data) => setBangumiCalendarData(data))
+      .catch((error) => console.error('获取番剧日历失败:', error))
+      .finally(() => setLoadingBangumi(false));
   }, []);
 
   // 处理收藏数据更新的函数
@@ -255,7 +236,7 @@ function HomeClient() {
                   </Link>
                 </div>
                 <ScrollableRow>
-                  {loading
+                  {loadingMovies
                     ? // 加载状态显示灰色占位数据
                     Array.from({ length: 8 }).map((_, index) => (
                       <div
@@ -289,6 +270,7 @@ function HomeClient() {
               </section>
 
               {/* 热门剧集 */}
+              <LazySection>
               <section className='mb-8'>
                 <div className='mb-4 flex items-center justify-between'>
                   <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
@@ -303,7 +285,7 @@ function HomeClient() {
                   </Link>
                 </div>
                 <ScrollableRow>
-                  {loading
+                  {loadingTvShows
                     ? // 加载状态显示灰色占位数据
                     Array.from({ length: 8 }).map((_, index) => (
                       <div
@@ -334,8 +316,10 @@ function HomeClient() {
                     ))}
                 </ScrollableRow>
               </section>
+              </LazySection>
 
               {/* 每日新番放送 */}
+              <LazySection>
               <section className='mb-8'>
                 <div className='mb-4 flex items-center justify-between'>
                   <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
@@ -350,7 +334,7 @@ function HomeClient() {
                   </Link>
                 </div>
                 <ScrollableRow>
-                  {loading
+                  {loadingBangumi
                     ? // 加载状态显示灰色占位数据
                     Array.from({ length: 8 }).map((_, index) => (
                       <div
@@ -392,13 +376,7 @@ function HomeClient() {
                           <VideoCard
                             from='douban'
                             title={anime.name_cn || anime.name}
-                            poster={
-                              anime.images.large ||
-                              anime.images.common ||
-                              anime.images.medium ||
-                              anime.images.small ||
-                              anime.images.grid
-                            }
+                            poster={getBangumiCoverUrl(anime.images)}
                             douban_id={anime.id}
                             rate={anime.rating?.score?.toFixed(1) || ''}
                             year={anime.air_date?.split('-')?.[0] || ''}
@@ -409,8 +387,10 @@ function HomeClient() {
                     })()}
                 </ScrollableRow>
               </section>
+              </LazySection>
 
               {/* 热门综艺 */}
+              <LazySection>
               <section className='mb-8'>
                 <div className='mb-4 flex items-center justify-between'>
                   <h2 className='text-xl font-bold text-gray-800 dark:text-gray-200'>
@@ -425,7 +405,7 @@ function HomeClient() {
                   </Link>
                 </div>
                 <ScrollableRow>
-                  {loading
+                  {loadingVarietyShows
                     ? // 加载状态显示灰色占位数据
                     Array.from({ length: 8 }).map((_, index) => (
                       <div
@@ -456,6 +436,7 @@ function HomeClient() {
                     ))}
                 </ScrollableRow>
               </section>
+              </LazySection>
             </>
           )}
         </div>
