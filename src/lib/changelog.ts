@@ -11,6 +11,26 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "200.0.0",
+    date: "2026-10-31",
+    added: [
+    "VPS 一键部署与维护脚本 deploy/lunatv.sh（命令 lunatv）：安装 Docker，用 Docker Compose 运行 LunaTV + Kvrocks，宿主机 nginx 提供 HTTPS（默认 2096 端口，可走 Cloudflare 代理），证书使用已有文件；安装前检查证书与端口，输入不合格可反复重新输入；自动放行宿主机防火墙；提供交互式管理菜单与 status / info / update / logs / uninstall 等命令"
+    ],
+    changed: [
+    "独立发布：本仓库（iv7777/LunaTV）fork 自 MoonTechLab/LunaTV，从 200.0.0 起使用自己的版本号；版本检查、变更日志、「前往仓库」链接、部署文档与 Docker 镜像（ghcr.io/iv7777/lunatv）都改为本仓库",
+    "CI 与镜像构建工作流只在 my-branch 上运行，PR 只构建不推送；新增 PR 质量门禁（lint、类型检查、测试、构建）",
+    "播放源优选改为固定并发测速；点播关闭 HLS 低延迟模式并增大缓冲",
+    "配置缓存增加 TTL 与在途请求去重；本地缓存写入时避免重复序列化",
+    "依赖：next 升级至 14.2.35，移除源码中未引用的依赖"
+    ],
+    fixed: [
+    "数据导出再导入后普通用户密码错误：备份中的密码哈希原样恢复，不再被二次哈希",
+    "安全：修改密码需要旧密码并校验强度；校验登录跳转地址；认证 Cookie 的 Secure 属性按实际协议设置；转义注入页面脚本的运行时配置；图片代理限制代理目标与响应类型，直播台标代理只转发图片",
+    "代理：url 参数不再被重复解码；m3u8 重写改用站内相对地址；台标代理兼容 source 参数名",
+    "定时任务增加互斥锁与最小执行间隔；修复测速时 hls 实例泄漏；合并重复注册的播放器事件"
+    ]
+  },
+  {
     version: "100.1.3",
     date: "2026-05-28",
     added: [

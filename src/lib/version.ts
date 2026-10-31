@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 
-const CURRENT_VERSION = '100.1.3';
+const CURRENT_VERSION = '200.0.0';
 
 // 本仓库地址：版本检查、变更日志与「前往仓库」链接都指向这里，而非上游
 const REPO_URL = 'https://github.com/iv7777/LunaTV';
